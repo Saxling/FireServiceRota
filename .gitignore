@@ -1,3 +1,5 @@
 .venv/
 data/secrets/
 .idea/
+dist/
+build/

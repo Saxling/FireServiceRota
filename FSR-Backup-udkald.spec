@@ -1,47 +1,31 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 block_cipher = None
 
-project_root = Path(__file__).resolve().parent
+project_root = Path(".").resolve()
 
-# ENTRYPOINT (som du ønskede)
-script_path = project_root / "src" / "noedudkald" / "main.py"
+datas = [
+    ("data", "data"),  # bundle default config and structure
+]
 
-# App identity
-app_name = "FSR-Backup-udkald"  # fil/folder-navn (undgå æ/ø/å og mellemrum)
-icon_ico = project_root / "assets" / "app_icon.ico"
+hiddenimports = [
+    "PySide6.QtWebEngineWidgets",
+    "pandas",
+    "openpyxl",
+]
 
-# --- PySide6 (incl Qt plugins/resources + QtWebEngineProcess) ---
-pyside_datas, pyside_binaries, pyside_hidden = collect_all("PySide6")
-
-hiddenimports = []
-hiddenimports += pyside_hidden
-hiddenimports += collect_submodules("PySide6.QtWebEngineCore")
-hiddenimports += collect_submodules("PySide6.QtWebEngineWidgets")
-
-# --- Bundle your template data folder (read-only in dist) ---
-datas = []
-data_dir = project_root / "data" / "config"
-if data_dir.exists():
-    datas.append((str(data_dir), "data/config"))
-
-# --- Analysis ---
 a = Analysis(
-    [str(script_path)],
+    ["src/noedudkald/main.py"],
     pathex=[str(project_root)],
-    binaries=pyside_binaries,
-    datas=datas + pyside_datas,
+    binaries=[],
+    datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
     excludes=[],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
     cipher=block_cipher,
-    noarchive=False,
 )
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
@@ -51,13 +35,13 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name=app_name,
+    name="FSR-Backup-udkald",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,  # windowed app
-    icon=str(icon_ico) if icon_ico.exists() else None,
+    console=False,
+    icon="assets/app_icon.ico",
 )
 
 coll = COLLECT(
@@ -67,5 +51,5 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=True,
-    name=app_name,
+    name="FSR-Backup-udkald",
 )

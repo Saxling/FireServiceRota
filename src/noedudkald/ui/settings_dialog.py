@@ -203,7 +203,7 @@ class SettingsDialog(QDialog):
 
             # update config (stores the internal filename)
             self.cfg[key] = target.name
-            self.edits[key].setPlaceholderText("")
+            self.edits[key].setPlaceholderText("Fil ok - tryk gem for at opdatere ")
 
             QMessageBox.information(self, "OK", "Fil valideret og gemt.")
         except Exception as e:
