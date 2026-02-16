@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QTextEdit, QListWidget, QListWidgetItem,
     QPushButton, QGroupBox, QMessageBox, QRadioButton, QButtonGroup,
-    QCheckBox, QSplitter, QDialog, QCompleter,
+    QCheckBox, QSplitter, QDialog, QCompleter
 )
 
 from noedudkald.data_sources.data_hub import DataHub
@@ -23,7 +23,7 @@ from noedudkald.rules.resolve_callout import CalloutResolver
 from noedudkald.rules.text_composer import CalloutTextInput, compose_alert_text
 from noedudkald.integrations.fireservicerota_client import FireServiceRotaClient, FireServiceRotaError, FireServiceRotaAuthError
 from noedudkald.integrations.token_store import TokenStore
-from noedudkald.ui.settings_dialog import SettingsDialog
+from noedudkald.ui.settings_dialog import SettingsDialog, LoginDialog
 from noedudkald.persistence.runtime_paths import ensure_user_data_layout
 
 
