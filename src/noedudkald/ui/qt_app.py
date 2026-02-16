@@ -1116,7 +1116,6 @@ class NoodudkaldQt(QMainWindow):
     def on_send(self):
 
         def _extract_http_code(msg: str) -> str | None:
-            # Matches: "... (400): ..." or "... (401) ..." etc.
             m = re.search(r"\((\d{3})\)", msg)
             return m.group(1) if m else None
 
@@ -1125,13 +1124,16 @@ class NoodudkaldQt(QMainWindow):
             self._log("Opdaterer preview før afsendelse...")
             self.on_resolve()
 
-            # If resolve failed, on_resolve() shows error dialog and will not set last_*.
             if not self.last_alert_text or not self.last_task_ids or not self.last_priority or not self.last_location:
                 raise ValueError("Kunne ikke generere opdateret preview. Ret input og prøv igen.")
 
             fsr_prio = FSR_PRIORITY_MAP[self.last_priority]
 
-            token_path = self.paths.project_root / "data" / "secrets" / "fsr_token.json"
+            # ✅ APPDATA token store
+            from noedudkald.persistence.runtime_paths import ensure_user_data_layout
+            udata = ensure_user_data_layout()
+            token_path = udata / "secrets" / "fsr_token.json"
+
             store = TokenStore(token_path)
             client = FireServiceRotaClient(base_url="https://www.fireservicerota.co.uk")
 
@@ -1139,14 +1141,17 @@ class NoodudkaldQt(QMainWindow):
             if token:
                 client.set_token(token)
             else:
+                # ✅ Import locally to avoid circular imports & PyInstaller issues
                 dlg = LoginDialog(self)
                 if dlg.exec() != QDialog.Accepted:
                     return
+
                 username, password = dlg.creds()
                 if not username or not password:
                     raise ValueError("Brugernavn/adgangskode mangler.")
+
                 token = client.login_with_password(username, password)
-                store.save(token)
+                store.save(token, username=username)
 
             self._log("Sender til FireServiceRota...")
 
@@ -1183,7 +1188,7 @@ class NoodudkaldQt(QMainWindow):
                 self._error("FSR fejl", "Server returnerede en fejl (ukendt HTTP kode).")
 
         except Exception as e:
-            self._log("NETVÆRKSFEJL/TIMEOUT")
+            self._log("FEJL ved afsendelse")
             self._log(str(e))
             self._error("Fejl", str(e))
 
