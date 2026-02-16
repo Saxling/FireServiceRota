@@ -1,7 +1,8 @@
-from noedudkald.persistence.runtime_paths import ensure_user_data_layout
-from pathlib import Path
-import shutil
 import json
+import shutil
+from pathlib import Path
+
+from noedudkald.persistence.runtime_paths import ensure_user_data_layout
 
 
 class SourceConfig:

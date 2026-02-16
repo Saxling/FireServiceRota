@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import json
+import re
+import time
+import urllib.parse
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt, QStringListModel, QUrl, QRunnable, QThreadPool, Signal, QObject, QTimer,QSignalBlocker
-from PySide6.QtWebEngineWidgets import QWebEngineView
+import pandas as pd
+import requests
+from PySide6.QtCore import Qt, QStringListModel, QUrl, QRunnable, QThreadPool, Signal, QObject, QTimer, QSignalBlocker
 from PySide6.QtGui import QFont
+from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
     QVBoxLayout, QHBoxLayout,
@@ -16,25 +22,16 @@ from PySide6.QtWidgets import (
     QCheckBox, QSplitter, QDialog, QCompleter
 )
 
+from noedudkald.data_sources.addresses import make_manual_address
 from noedudkald.data_sources.data_hub import DataHub
 from noedudkald.data_sources.task_map import TaskMap
-from noedudkald.data_sources.addresses import make_manual_address
+from noedudkald.integrations.fireservicerota_client import FireServiceRotaClient, FireServiceRotaError, \
+    FireServiceRotaAuthError
+from noedudkald.integrations.token_store import TokenStore
+from noedudkald.persistence.runtime_paths import ensure_user_data_layout
 from noedudkald.rules.resolve_callout import CalloutResolver
 from noedudkald.rules.text_composer import CalloutTextInput, compose_alert_text
-from noedudkald.integrations.fireservicerota_client import FireServiceRotaClient, FireServiceRotaError, FireServiceRotaAuthError
-from noedudkald.integrations.token_store import TokenStore
 from noedudkald.ui.settings_dialog import SettingsDialog, LoginDialog
-from noedudkald.persistence.runtime_paths import ensure_user_data_layout
-
-
-import pandas as pd
-import re
-import urllib.parse
-import time
-import requests
-import json
-
-
 
 FSR_PRIORITY_MAP = {"Kørsel 1": "prio1", "Kørsel 2": "prio2"}
 
@@ -49,8 +46,10 @@ class AppPaths:
     postnummer_xlsx: Path
     taskids_xlsx: Path
 
+
 class _StartupSignals(QObject):
     done = Signal(bool, bool, str, str)  # sources_ok, fsr_ok, sources_msg, fsr_msg
+
 
 class _StartupCheckWorker(QRunnable):
     def __init__(self, gui):
@@ -118,6 +117,7 @@ def ensure_files_exist(paths: AppPaths) -> None:
         raise FileNotFoundError(
             "Missing datasource files:\n" + "\n".join(f" - {m}" for m in missing)
         )
+
 
 class NoodudkaldQt(QMainWindow):
     def __init__(self):
@@ -370,10 +370,9 @@ class NoodudkaldQt(QMainWindow):
         self.candidate_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.candidate_list.setMinimumHeight(200)
 
-
         left_l.addWidget(addr_box)
         left_l.addWidget(manual_box)
-        left_l.addWidget(cand_box,1)
+        left_l.addWidget(cand_box, 1)
 
         main_split.addWidget(left)
 
@@ -458,8 +457,7 @@ class NoodudkaldQt(QMainWindow):
         mid_l.addWidget(prio_box)
         mid_l.addWidget(com_box)
         mid_l.addWidget(assist_box)
-        mid_l.addWidget(map_box,1)
-
+        mid_l.addWidget(map_box, 1)
 
         main_split.addWidget(mid)
 
@@ -550,6 +548,7 @@ class NoodudkaldQt(QMainWindow):
                 font-weight: 600;
             }
         """)
+
     # ---------- helpers ----------
 
     def _format_candidate_label(self, a: Any) -> str:
@@ -698,6 +697,7 @@ class NoodudkaldQt(QMainWindow):
         Source of truth: RB Pickliste.xlsx (all sheets).
         This avoids depending on internal structure of hub.incidents.
         """
+
         def norm(s: str) -> str:
             return re.sub(r"\s+", "", str(s).strip().lower())
 
@@ -1059,7 +1059,8 @@ class NoodudkaldQt(QMainWindow):
                 self.last_location = self._fsr_location(addr.display)
 
                 self.preview.setPlainText(alert + "\n\n" + f"Task IDs: {sel.task_ids}" +
-                                          (f"\nAssistance auto-added: {sel.assistance_unit}" if sel.assistance_added else ""))
+                                          (
+                                              f"\nAssistance auto-added: {sel.assistance_unit}" if sel.assistance_added else ""))
                 self._log("Assistance preview ready.")
                 return
 
@@ -1092,7 +1093,8 @@ class NoodudkaldQt(QMainWindow):
                 units=resolved.final_units,
             )
 
-            sel = self.task_map.select_task_ids_for_units(resolved.final_units, now=datetime.now(), auto_add_assistance=True)
+            sel = self.task_map.select_task_ids_for_units(resolved.final_units, now=datetime.now(),
+                                                          auto_add_assistance=True)
             if sel.missing_units:
                 raise ValueError("Missing task_id mapping for: " + ", ".join(sel.missing_units))
 

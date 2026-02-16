@@ -3,12 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Union
 
-from noedudkald.data_sources.addresses import KnownAddress, ManualAddress
 from noedudkald.data_sources.aba import AbaDirectory, AbaSite
-from noedudkald.data_sources.incidents import IncidentMatrix, IncidentProfile
+from noedudkald.data_sources.addresses import KnownAddress, ManualAddress
+from noedudkald.data_sources.incidents import IncidentMatrix
 from noedudkald.rules.aba_rules import apply_aba_rules_case_sensitive, AbaRuleResult
 
 AddressType = Union[KnownAddress, ManualAddress]
+
 
 @dataclass(frozen=True)
 class ResolvedCallout:
@@ -28,10 +29,10 @@ class CalloutResolver:
         self.aba = aba
 
     def resolve(
-        self,
-        selected_address: AddressType,
-        incident_code: str,
-        use_secondary_aba: bool = False,
+            self,
+            selected_address: AddressType,
+            incident_code: str,
+            use_secondary_aba: bool = False,
     ) -> ResolvedCallout:
         district_no = selected_address.district_no
         code = (incident_code or "").strip()  # case sensitive

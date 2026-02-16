@@ -80,6 +80,7 @@ class FireServiceRotaClient:
         Called after login and after refresh.
         """
         self._persist_token_cb = cb
+
     # ---- OAuth2 ----
     def login_with_password(self, username: str, password: str, client_id: str | None = None) -> TokenInfo:
         """

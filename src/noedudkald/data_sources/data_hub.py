@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 
-from noedudkald.data_sources.addresses import AddressDirectory
 from noedudkald.data_sources.aba import AbaDirectory
+from noedudkald.data_sources.addresses import AddressDirectory
 from noedudkald.data_sources.incidents import IncidentMatrix
 from noedudkald.data_sources.postcodes import PostcodeDirectory
 

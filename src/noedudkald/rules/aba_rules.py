@@ -27,10 +27,10 @@ def units_from_aba_site(aba_site: AbaSite, use_secondary: bool) -> list[str]:
 
 
 def apply_aba_rules_case_sensitive(
-    incident_code: str,
-    aba_site: Optional[AbaSite],
-    base_units: list[str],
-    use_secondary: bool = False,
+        incident_code: str,
+        aba_site: Optional[AbaSite],
+        base_units: list[str],
+        use_secondary: bool = False,
 ) -> AbaRuleResult:
     """
     Case sensitive:

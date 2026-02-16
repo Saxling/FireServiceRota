@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+
 import unicodedata
 
 
@@ -24,10 +25,12 @@ def normalize_text(s: str) -> str:
     return s
 
 
-def normalize_address(street: str, house_no: str | int | None, house_letter: str | None, postcode: str | int | None) -> str:
+def normalize_address(street: str, house_no: str | int | None, house_letter: str | None,
+                      postcode: str | int | None) -> str:
     """
     Builds a normalized key like: 'HOVEDGADEN 12 A 4000'
     """
-    parts = [street, str(house_no) if house_no is not None else "", house_letter or "", str(postcode) if postcode is not None else ""]
+    parts = [street, str(house_no) if house_no is not None else "", house_letter or "",
+             str(postcode) if postcode is not None else ""]
     raw = " ".join(p for p in parts if p and str(p).strip())
     return normalize_text(raw)

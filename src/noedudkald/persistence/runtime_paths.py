@@ -5,7 +5,6 @@ import shutil
 import sys
 from pathlib import Path
 
-
 APP_DIR_NAME = "FSR-Backup-udkald"  # må gerne være uden æøå i filsystem
 
 

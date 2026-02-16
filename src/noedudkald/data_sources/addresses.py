@@ -21,6 +21,7 @@ class KnownAddress:
     postcode: str
     city: str = ""
 
+
 @dataclass(frozen=True)
 class ManualAddress:
     display: str
@@ -30,6 +31,7 @@ class ManualAddress:
     postcode: str
     city: str
     district_no: str  # user-supplied when not known
+
 
 class AddressDirectory:
     def __init__(self, csv_path: str | Path):
@@ -211,12 +213,12 @@ class AddressDirectory:
 
 
 def make_manual_address(
-    street: str,
-    house_no: str,
-    house_extra: str,
-    postcode: str,
-    city: str,
-    district_no: str,
+        street: str,
+        house_no: str,
+        house_extra: str,
+        postcode: str,
+        city: str,
+        district_no: str,
 ) -> ManualAddress:
     extra = f" {house_extra.strip()}" if house_extra.strip() else ""
     display = f"{street.strip()} {house_no.strip()}{extra}, {postcode.strip()} {city}".strip()

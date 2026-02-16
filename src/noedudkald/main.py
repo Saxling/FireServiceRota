@@ -5,6 +5,7 @@ from pathlib import Path
 
 from noedudkald.ui.qt_app import run_gui
 
+
 @dataclass(frozen=True)
 class AppPaths:
     project_root: Path
@@ -15,11 +16,14 @@ class AppPaths:
     postnummer_xlsx: Path
     taskids_xlsx: Path
 
+
 FSR_PRIORITY_MAP = {"Kørsel 1": "prio1", "Kørsel 2": "prio2"}
+
 
 def fsr_location_from_display(address_display: str) -> str:
     # FSR location should be a clean one-liner. Keep postcode+city.
     return address_display.replace(",", "").strip()
+
 
 def detect_project_root() -> Path:
     """
@@ -43,16 +47,19 @@ def default_paths() -> AppPaths:
 
 
 def ensure_files_exist(paths: AppPaths) -> None:
-    missing = [p for p in [paths.addresses_csv, paths.aba_xlsx, paths.pickliste_xlsx, paths.postnummer_xlsx, paths.taskids_xlsx] if not p.exists()]
+    missing = [p for p in
+               [paths.addresses_csv, paths.aba_xlsx, paths.pickliste_xlsx, paths.postnummer_xlsx, paths.taskids_xlsx] if
+               not p.exists()]
     if missing:
         msg = (
-            "Missing datasource files:\n"
-            + "\n".join(f" - {m}" for m in missing)
-            + "\n\nExpected them under:\n"
-            f" {paths.data_dir}\n"
-            "\nFix: create the folder and copy your 3 files there."
+                "Missing datasource files:\n"
+                + "\n".join(f" - {m}" for m in missing)
+                + "\n\nExpected them under:\n"
+                  f" {paths.data_dir}\n"
+                  "\nFix: create the folder and copy your 3 files there."
         )
         raise FileNotFoundError(msg)
+
 
 def prompt_priority() -> str:
     """
@@ -69,11 +76,9 @@ def prompt_priority() -> str:
         print("Invalid input. Enter 1 or 2.")
 
 
-
 def main() -> int:
     run_gui()
     return 0
-
 
 
 if __name__ == "__main__":

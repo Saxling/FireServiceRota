@@ -15,10 +15,10 @@ from .normalize import normalize_text
 class AbaSite:
     doa_no: str
     name: str
-    address_display: str      # e.g. "MAGLEHØJEN 10, 4000 ROSKILDE"
+    address_display: str  # e.g. "MAGLEHØJEN 10, 4000 ROSKILDE"
     address_norm: str
-    primary_response: str     # e.g. "ROIL1,ROM1,ROV1"
-    secondary_response: str   # e.g. "ROIL1,ROM2,ROV1"
+    primary_response: str  # e.g. "ROIL1,ROM1,ROV1"
+    secondary_response: str  # e.g. "ROIL1,ROM2,ROV1"
     status: str
 
 
@@ -113,4 +113,3 @@ class AbaDirectory:
             secondary_response=str(r["Sekundær udrykning"]),
             status=str(r["Status"]),
         )
-

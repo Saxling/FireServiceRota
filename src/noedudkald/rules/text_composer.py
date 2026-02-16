@@ -1,21 +1,20 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import Optional
 
 
 @dataclass(frozen=True)
 class CalloutTextInput:
-    incident_code: str                 # e.g. "BAAl" or other
-    incident_text: str                 # e.g. "BRANDALARM" or "BYGN.BRAND-BUTIK"
-    address_display: str               # e.g. "Maglehøjen 10, 4000"
+    incident_code: str  # e.g. "BAAl" or other
+    incident_text: str  # e.g. "BRANDALARM" or "BYGN.BRAND-BUTIK"
+    address_display: str  # e.g. "Maglehøjen 10, 4000"
     city: str = "Roskilde"
     priority: str = "Kørsel 1"
     dispatch_comments: Optional[str] = None  # free text, optional
 
     # ABA-only fields (ignored for non-ABA)
-    aba_site_name: Optional[str] = None      # e.g. '"SILOEN" UNGDOMSBOLIGER'
+    aba_site_name: Optional[str] = None  # e.g. '"SILOEN" UNGDOMSBOLIGER'
 
 
 def _format_address(address_display: str, city: str) -> str:
@@ -25,7 +24,6 @@ def _format_address(address_display: str, city: str) -> str:
         return s.replace(",", "")
     # Fallback only
     return (city or "").strip()
-
 
 
 def _units_to_str(units: list[str]) -> str:
@@ -55,7 +53,7 @@ def compose_alert_text(inp: CalloutTextInput, units: list[str]) -> str:
             address_part,
             (inp.aba_site_name or "").strip(),
             inp.priority,
-            inp.incident_text,   # typically "BRANDALARM"
+            inp.incident_text,  # typically "BRANDALARM"
         ]
         if comments:
             parts.append(comments)

@@ -17,6 +17,7 @@ class PostcodeDirectory:
     Reads Postnummer.xlsx (sheet 'Data') which contains columns:
       Postnr | By
     """
+
     def __init__(self, xlsx_path: str | Path):
         self.xlsx_path = Path(xlsx_path)
         self._map: dict[str, str] = {}
