@@ -5,9 +5,6 @@ from pathlib import Path
 
 from noedudkald.ui.qt_app import run_gui
 
-
-
-
 @dataclass(frozen=True)
 class AppPaths:
     project_root: Path
@@ -18,13 +15,11 @@ class AppPaths:
     postnummer_xlsx: Path
     taskids_xlsx: Path
 
-
 FSR_PRIORITY_MAP = {"Kørsel 1": "prio1", "Kørsel 2": "prio2"}
 
 def fsr_location_from_display(address_display: str) -> str:
     # FSR location should be a clean one-liner. Keep postcode+city.
     return address_display.replace(",", "").strip()
-
 
 def detect_project_root() -> Path:
     """

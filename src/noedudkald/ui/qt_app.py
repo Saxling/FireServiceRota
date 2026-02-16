@@ -3,17 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from PySide6.QtCore import Qt, QStringListModel, QUrl, QRunnable, QThreadPool, Signal, QObject, QTimer,QSignalBlocker
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
-    QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout,
+    QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QTextEdit, QListWidget, QListWidgetItem,
     QPushButton, QGroupBox, QMessageBox, QRadioButton, QButtonGroup,
-    QCheckBox, QSplitter, QInputDialog, QDialog, QDialogButtonBox, QCompleter, QSizePolicy
+    QCheckBox, QSplitter, QDialog, QCompleter,
 )
 
 from noedudkald.data_sources.data_hub import DataHub
