@@ -3,6 +3,7 @@ from pathlib import Path
 import shutil
 import json
 
+
 class SourceConfig:
     def __init__(self, project_root: Path):
         self.project_root = project_root
@@ -13,6 +14,14 @@ class SourceConfig:
         self.config_path = udata / "config" / "sources.json"
         self.input_dir = udata / "input"
         self.input_dir.mkdir(parents=True, exist_ok=True)
+
+        self.defaults = {
+            "aba": "ABA alarmer.xlsx",
+            "addresses": "112 Adresse punkter.csv",
+            "incidents": "Pickliste.xlsx",
+            "task_ids": "TaskIds.xlsx",
+            "postcodes": "Postnummer.xlsx",
+        }
 
     def load(self) -> dict:
         if not self.config_path.exists():
