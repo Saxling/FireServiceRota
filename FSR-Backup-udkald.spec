@@ -24,9 +24,9 @@ hiddenimports += collect_submodules("PySide6.QtWebEngineWidgets")
 
 # --- Bundle your template data folder (read-only in dist) ---
 datas = []
-data_dir = project_root / "data"
+data_dir = project_root / "data" / "config"
 if data_dir.exists():
-    datas.append((str(data_dir), "data"))
+    datas.append((str(data_dir), "data/config"))
 
 # --- Analysis ---
 a = Analysis(

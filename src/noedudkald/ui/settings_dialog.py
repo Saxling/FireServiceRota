@@ -22,6 +22,7 @@ from noedudkald.data_sources.postcodes import PostcodeDirectory
 from noedudkald.data_sources.task_map import TaskMap
 from noedudkald.integrations.fireservicerota_client import FireServiceRotaClient, FireServiceRotaAuthError, FireServiceRotaError
 from noedudkald.integrations.token_store import TokenStore
+from noedudkald.persistence.runtime_paths import ensure_user_data_layout
 
 
 @dataclass(frozen=True)
@@ -234,7 +235,8 @@ class SettingsDialog(QDialog):
         self.accept()
 
     def _token_store(self) -> TokenStore:
-        token_path = self.cfg_mgr.project_root / "data" / "secrets" / "fsr_token.json"
+        udata = ensure_user_data_layout()
+        token_path = udata / "secrets" / "fsr_token.json"
         return TokenStore(token_path)
 
     def _refresh_fsr_status(self):

@@ -24,6 +24,7 @@ from noedudkald.rules.text_composer import CalloutTextInput, compose_alert_text
 from noedudkald.integrations.fireservicerota_client import FireServiceRotaClient, FireServiceRotaError, FireServiceRotaAuthError
 from noedudkald.integrations.token_store import TokenStore
 from noedudkald.ui.settings_dialog import SettingsDialog
+from noedudkald.persistence.runtime_paths import ensure_user_data_layout
 
 
 import pandas as pd
@@ -89,7 +90,10 @@ def detect_project_root() -> Path:
 
 def default_paths() -> AppPaths:
     root = detect_project_root()
-    data_dir = root / "data" / "input"
+
+    udata = ensure_user_data_layout()
+    data_dir = udata / "input"
+
     return AppPaths(
         project_root=root,
         data_dir=data_dir,
@@ -199,7 +203,8 @@ class NoodudkaldQt(QMainWindow):
         Returns (ok, message)
         ok=True kun når token findes og heartbeat-test viser auth OK.
         """
-        token_path = self.paths.project_root / "data" / "secrets" / "fsr_token.json"
+        udata = ensure_user_data_layout()
+        token_path = udata / "secrets" / "fsr_token.json"
         store = TokenStore(token_path)
 
         client = FireServiceRotaClient(base_url="https://www.fireservicerota.co.uk")
