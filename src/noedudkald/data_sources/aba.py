@@ -29,6 +29,13 @@ class AbaDirectory:
 
     def load(self) -> None:
         df = pd.read_excel(self.xlsx_path)
+        # Normalize status once
+        df["Status"] = df["Status"].fillna("").astype(str).str.strip()
+        df["_status_norm"] = df["Status"].str.lower()
+
+        # STRICT: only consider ABA sites that are in drift
+        # (covers "Drift", "I drift", etc. — adjust if you truly mean exactly "Drift")
+        df = df[df["_status_norm"].str.contains(r"\bdrift\b", na=False)].copy()
 
         required = ["DOA-nr", "Adresse", "Postnr/bynavn", "Navn", "Primær udrykning", "Sekundær udrykning", "Status"]
         missing = [c for c in required if c not in df.columns]
@@ -38,6 +45,11 @@ class AbaDirectory:
         df["Adresse"] = df["Adresse"].astype(str).str.strip()
         df["Postnr/bynavn"] = df["Postnr/bynavn"].astype(str).str.strip()
         df["Navn"] = df["Navn"].fillna("").astype(str).str.strip()
+
+        # Normalize response fields (avoid NaN / stray whitespace)
+        df["Primær udrykning"] = df["Primær udrykning"].fillna("").astype(str).str.strip()
+        df["Sekundær udrykning"] = df["Sekundær udrykning"].fillna("").astype(str).str.strip()
+        df["Status"] = df["Status"].fillna("").astype(str).str.strip()
 
         # Human-readable display
         df["address_display"] = df["Adresse"] + ", " + df["Postnr/bynavn"]
@@ -49,16 +61,48 @@ class AbaDirectory:
         df["postcode4"] = df["Postnr/bynavn"].astype(str).str.extract(r"(\d{4})")[0].fillna("")
         df["key_basic"] = (df["Adresse"].astype(str).str.strip() + " " + df["postcode4"]).map(normalize_text)
 
-        # Drop duplicates using the robust key
-        df = df.drop_duplicates(subset=["key_basic"], keep="first").reset_index(drop=True)
+        # Prefer the "best" row when multiple ABA sites share the same address key.
+        # This prevents *FEJL* rows from "winning" just because they appear first in the Excel file.
+        def _aba_row_score(r: pd.Series) -> int:
+            prim = str(r.get("Primær udrykning", "")).strip()
+            sec = str(r.get("Sekundær udrykning", "")).strip()
+            status = str(r.get("Status", "")).strip().lower()
+            name = str(r.get("Navn", "")).strip()
+
+            score = 0
+
+            # Primary response quality
+            if prim and prim not in ("-", "*FEJL*"):
+                score += 100
+            elif prim == "*FEJL*":
+                score -= 100  # strongly penalize known bad rows
+
+            # Secondary response quality (nice to have, not required)
+            if sec and sec not in ("-", "*FEJL*"):
+                score += 10
+
+            # Prefer active/in-service statuses
+            if any(k in status for k in ("drift", "aktiv", "i drift", "in service")):
+                score += 5
+
+            # Tiny preference for named sites
+            if name:
+                score += 1
+
+            return score
+
+        df["_aba_score"] = df.apply(_aba_row_score, axis=1)
+
+        # Sort so best rows appear first per key, then keep the best.
+        df = (
+            df.sort_values(["key_basic", "_aba_score"], ascending=[True, False])
+              .drop_duplicates(subset=["key_basic"], keep="first")
+              .reset_index(drop=True)
+        )
 
         self._df = df
 
     def match_address(self, address_display: str) -> Optional[AbaSite]:
-        """
-        Exact normalized match. The caller should pass the selected address display string,
-        like from the AddressDirectory.
-        """
         if self._df is None:
             raise RuntimeError("AbaDirectory not loaded. Call load().")
 
@@ -68,6 +112,11 @@ class AbaDirectory:
             return None
 
         r = hit.iloc[0]
+
+        # Guard: if the "best" available row is still unusable, treat as no match
+        if str(r["Primær udrykning"]).strip() == "*FEJL*":
+            return None
+
         return AbaSite(
             doa_no=str(r["DOA-nr"]),
             name=str(r["Navn"]),
@@ -86,8 +135,6 @@ class AbaDirectory:
         hn = str(house_no).strip()
         hl = str(house_letter or "").strip()
 
-        # Primary key: street + house + letter + postcode
-        # Many ABA "Adresse" fields contain the letter embedded, so we try with and without
         key_with_letter = normalize_text(f"{street} {hn} {hl} {pc}".strip())
         key_no_letter = normalize_text(f"{street} {hn} {pc}".strip())
 
@@ -95,7 +142,6 @@ class AbaDirectory:
         if hit.empty:
             hit = self._df[self._df["key_basic"] == key_no_letter]
 
-        # Fallback: contains match (handles 'st', 'th', '1 sal' etc. in ABA Adresse)
         if hit.empty:
             must_contain = normalize_text(f"{street} {hn} {pc}")
             hit = self._df[self._df["key_basic"].str.contains(must_contain, na=False)]
@@ -103,7 +149,15 @@ class AbaDirectory:
         if hit.empty:
             return None
 
+        # If multiple candidates survive fallback contains-match, pick the highest score.
+        if "_aba_score" in hit.columns and len(hit) > 1:
+            hit = hit.sort_values("_aba_score", ascending=False)
+
         r = hit.iloc[0]
+
+        if str(r["Primær udrykning"]).strip() == "*FEJL*":
+            return None
+
         return AbaSite(
             doa_no=str(r["DOA-nr"]),
             name=str(r["Navn"]),

@@ -196,6 +196,20 @@ class NoodudkaldQt(QMainWindow):
         missing = self._missing_sources()
         if missing:
             return False, "Mangler datakilder"
+
+        # NEW: require successful load (not just files existing)
+        if self.hub is None or self.task_map is None or self.resolver is None:
+            return False, "Datakilder kunne ikke indlæses"
+
+        # Ensure key datasets are actually present/loaded
+        # (Addresses is the one you just hit)
+        if getattr(self.hub.addresses, "_df", None) is None:
+            return False, "Adresse-listen er ikke indlæst"
+
+        by_district = getattr(self.hub.incidents, "_by_district", None)
+        if not isinstance(by_district, dict) or len(by_district) == 0:
+            return False, "Pickliste er ikke indlæst"
+
         return True, "Datakilder OK"
 
     def _check_fsr_ready(self) -> tuple[bool, str]:
@@ -914,9 +928,9 @@ class NoodudkaldQt(QMainWindow):
         QMessageBox.critical(self, title, msg)
         self._log(f"ERROR: {msg}")
 
-    def _info(self, title: str, msg: str):
-        QMessageBox.information(self, title, msg)
-        self._log(msg)
+    def _info(self, title: str, message: str, log_message: str | None = None) -> None:
+        QMessageBox.information(self, title, message)
+        self._log(log_message if log_message is not None else message)
 
     def _fsr_location(self, address_display: str) -> str:
         return (address_display or "").replace(",", "").strip()
@@ -991,16 +1005,32 @@ class NoodudkaldQt(QMainWindow):
             self._error("Missing input", "Street and house number are required.")
             return
 
+        # 1) Strict match first (street+house)
         candidates = self.hub.addresses.find_by_components(street, house, extra, limit=60)
+
+        # 2) Fallback: fuzzy street match but same house number (Google-ish)
         if not candidates:
-            self._info("No matches", "No known address found. Use manual postnr/city fields.")
+            candidates = self.hub.addresses.find_fuzzy_street_house(
+                street=street,
+                house_no=house,
+                house_letter=extra,
+                limit=60,
+            )
+
+        if not candidates:
+            popup = (
+                "Adresse ikke fundet i 112-listen.\n\n"
+                "Kontroller stavning.\n"
+                "Eller aktiver Assistance hvis opgaven er udenfor eget distrikt."
+            )
+            self._info("No matches", popup, log_message="Adresse ikke fundet i 112-listen")
             return
 
         self._candidates = candidates
         for a in candidates:
             label = self._format_candidate_label(a)
             item = QListWidgetItem(label)
-            item.setData(Qt.UserRole, label)  # gem label til map/log
+            item.setData(Qt.UserRole, label)
             self.candidate_list.addItem(item)
 
         self._log(f"Found {len(candidates)} candidate(s). Select one.")
@@ -1237,7 +1267,11 @@ class NoodudkaldQt(QMainWindow):
             self._install_incident_completer()
 
         except Exception as e:
+            self.hub = None
+            self.task_map = None
+            self.resolver = None
             self._set_ready_state(False)
+            self._set_header_status("Mangler datakilder", "err")  # NEW
             self._log(f"FEJL ved indlæsning af datakilder: {e}")
 
     def _set_header_status(self, text: str, level: str = "info"):
