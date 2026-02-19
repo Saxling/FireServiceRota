@@ -4,6 +4,7 @@ import json
 import re
 import time
 import urllib.parse
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -12,7 +13,7 @@ from typing import Any
 import pandas as pd
 import requests
 from PySide6.QtCore import Qt, QStringListModel, QUrl, QRunnable, QThreadPool, Signal, QObject, QTimer, QSignalBlocker
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
@@ -35,6 +36,26 @@ from noedudkald.ui.settings_dialog import SettingsDialog, LoginDialog
 
 FSR_PRIORITY_MAP = {"Kørsel 1": "prio1", "Kørsel 2": "prio2"}
 
+
+def app_icon_path(project_root: Path) -> Path | None:
+    """
+    Returns a Path to app_icon.ico in both dev and PyInstaller builds.
+    - Dev: <project_root>/assets/app_icon.ico
+    - PyInstaller: <_MEIPASS>/assets/app_icon.ico  (if bundled as datas)
+    """
+    # PyInstaller extraction dir if present
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        p = Path(meipass) / "assets" / "app_icon.ico"
+        if p.exists():
+            return p
+
+    # Dev fallback
+    p = project_root / "assets" / "app_icon.ico"
+    if p.exists():
+        return p
+
+    return None
 
 @dataclass(frozen=True)
 class AppPaths:
@@ -123,11 +144,22 @@ class NoodudkaldQt(QMainWindow):
     def __init__(self):
         super().__init__()
 
+        # --- Paths FIRST ---
+        self.paths = default_paths()
+
+        # --- Icon ---
+        p = app_icon_path(self.paths.project_root)
+        if p:
+            icon = QIcon(str(p))
+            self.setWindowIcon(icon)  # window corner
+            app = QApplication.instance()
+            if app:
+                app.setWindowIcon(icon)  # taskbar/app
+
         self.setWindowTitle("Nødudkald")
         self.resize(1400, 900)
 
-        # --- Paths ---
-        self.paths = default_paths()
+
 
         # --- Core runtime state ---
         self.hub = None
