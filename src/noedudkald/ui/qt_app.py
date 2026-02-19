@@ -422,6 +422,8 @@ class NoodudkaldQt(QMainWindow):
         aba_l.addStretch(1)
 
         inc_v.addWidget(aba_row)
+        self._sync_aba_controls()
+        self.incident_code.textChanged.connect(lambda _: self._sync_aba_controls())
 
         # Priority card (big + clean)
         prio_box, prio_v = card("Kørsels type")
@@ -564,16 +566,43 @@ class NoodudkaldQt(QMainWindow):
         """)
 
     # ---------- helpers ----------
+    def _is_aba_site_address(self, a: Any) -> bool:
+        """
+        True if the selected KnownAddress matches an ABA site (Drift-filtered by your ABA loader).
+        Cached by norm_key to avoid repeated lookups.
+        """
+        if self.hub is None:
+            return False
 
-    def _format_candidate_label(self, a: Any) -> str:
-        # Vis KUN: vej, husnr, husbogstav, postnr, by
+        key = str(getattr(a, "norm_key", "") or "").strip()
+        if not hasattr(self, "_aba_flag_cache"):
+            self._aba_flag_cache = {}
+
+        if key and key in self._aba_flag_cache:
+            return self._aba_flag_cache[key]
 
         street = str(getattr(a, "street", "")).strip()
         house = str(getattr(a, "house_no", "")).strip()
         letter = str(getattr(a, "house_letter", "")).strip()
         post = str(getattr(a, "postcode", "")).strip()
 
-        # By: fra address hvis den findes, ellers slå op via postnr
+        ok = False
+        try:
+            ok = self.hub.aba.match_components(street, house, letter, post) is not None
+        except Exception:
+            ok = False
+
+        if key:
+            self._aba_flag_cache[key] = ok
+        return ok
+
+    def _format_candidate_label(self, a: Any) -> str:
+        street = str(getattr(a, "street", "")).strip()
+        house = str(getattr(a, "house_no", "")).strip()
+        letter = str(getattr(a, "house_letter", "")).strip()
+        post = str(getattr(a, "postcode", "")).strip()
+
+        # City from address or postcode lookup
         city = str(getattr(a, "city", "")).strip()
         if not city and self.hub is not None and post:
             city = (self.hub.postcodes.city_for_postcode(post) or "").strip()
@@ -582,9 +611,13 @@ class NoodudkaldQt(QMainWindow):
         if letter:
             line1 = f"{line1} {letter}".strip()
 
-        if city:
-            return f"{line1}, {post} {city}".strip()
-        return f"{line1}, {post}".strip()
+        label = f"{line1}, {post} {city}".strip() if city else f"{line1}, {post}".strip()
+
+        # Mark ABA sites
+        if self._is_aba_site_address(a):
+            label = f"{label}  [ABA]"
+
+        return label
 
     def _update_map(self, address_display: str) -> None:
         addr = (address_display or "").replace(",", "").strip()
@@ -799,6 +832,17 @@ class NoodudkaldQt(QMainWindow):
         pairs.sort(key=lambda x: x[1].lower())
         return pairs
 
+    def _sync_aba_controls(self) -> None:
+        code = self._extract_incident_code(self.incident_code.text())
+        enabled = (code == "BAAl")
+
+        self.aba_p.setEnabled(enabled)
+        self.aba_s.setEnabled(enabled)
+
+        # If not BAAl, force Primær checked to avoid stale "Sekundær" state
+        if not enabled:
+            self.aba_p.setChecked(True)
+
     def _install_incident_completer(self) -> None:
         """
         Fast incident search:
@@ -895,6 +939,7 @@ class NoodudkaldQt(QMainWindow):
             self.incident_code.setText(code)
         finally:
             del blocker
+        self._sync_aba_controls()
 
     def _extract_incident_code(self, raw: str) -> str:
         """
@@ -1029,25 +1074,54 @@ class NoodudkaldQt(QMainWindow):
         self._candidates = candidates
         for a in candidates:
             label = self._format_candidate_label(a)
+
+            # Visible label (may include [ABA])
             item = QListWidgetItem(label)
-            item.setData(Qt.UserRole, label)
+
+            # IMPORTANT: store clean address for map/geocode (never include [ABA])
+            raw_addr = getattr(a, "display", "") or label
+            item.setData(Qt.UserRole, raw_addr)
+
             self.candidate_list.addItem(item)
 
         self._log(f"Found {len(candidates)} candidate(s). Select one.")
 
     def on_candidate_selected(self):
         items = self.candidate_list.selectedItems()
-
         if not items:
             return
-        idx = self.candidate_list.row(items[0])
-        self.selected_address = self._candidates[idx]
 
         item = items[0]
-        label = item.data(Qt.UserRole) or self.selected_address.display
+        idx = self.candidate_list.row(item)
+        self.selected_address = self._candidates[idx]
 
-        self._update_map(label)
-        self._log(f"Selected: {label} (district {self.selected_address.district_no})")
+        # Use the clean string stored in UserRole for map (no [ABA])
+        address_for_map = item.data(Qt.UserRole) or getattr(self.selected_address, "display", "")
+        self._update_map(address_for_map)
+
+        # ABA prompt every time for ABA sites (only when not Assistance)
+        if (not self.manual_assist.isChecked()) and self._is_aba_site_address(self.selected_address):
+            # Make it sound like other Windows popups
+            QApplication.beep()
+
+            ans = QMessageBox.question(
+                self,
+                "ABA",
+                "Er dette en Automatisk Brandalarm (ABA)?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes,
+            )
+
+            if ans == QMessageBox.Yes:
+                blocker = QSignalBlocker(self.incident_code)
+                try:
+                    self.incident_code.setText("BAAl")
+                finally:
+                    del blocker
+                self._sync_aba_controls()
+
+        # Log the visible label (includes [ABA], which is fine in logs)
+        self._log(f"Selected: {item.text()} (district {self.selected_address.district_no})")
 
     def on_resolve(self):
         if not self.hub or not self.resolver or not self.task_map:
@@ -1306,7 +1380,13 @@ class NoodudkaldQt(QMainWindow):
         self.manual_city.clear()
         self.manual_assist.setChecked(False)
 
-        self.candidate_list.clear()
+        # BLOCK candidate list signals while clearing selection/items
+        self.candidate_list.blockSignals(True)
+        try:
+            self.candidate_list.clear()
+        finally:
+            self.candidate_list.blockSignals(False)
+
         self._candidates = []
         self.selected_address = None
 
