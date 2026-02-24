@@ -13,7 +13,7 @@ from typing import Any
 import pandas as pd
 import requests
 from PySide6.QtCore import Qt, QStringListModel, QUrl, QRunnable, QThreadPool, Signal, QObject, QTimer, QSignalBlocker
-from PySide6.QtGui import QFont, QIcon, QPixmap
+from PySide6.QtGui import QFont, QIcon, QPixmap, QPainter, QColor, QPen
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
@@ -67,6 +67,52 @@ class AppPaths:
     postnummer_xlsx: Path
     taskids_xlsx: Path
 
+
+class BootSplash(QWidget):
+    def __init__(self, pixmap: QPixmap):
+        super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+
+        self.setAttribute(Qt.WA_TranslucentBackground, False)
+        self.setWindowTitle("Starter...")
+
+        # Image
+        self._img = QLabel()
+        self._img.setPixmap(pixmap)
+        self._img.setFixedSize(pixmap.size())
+
+        # Bottom bar + text
+        self._bar = QLabel()
+        self._bar.setFixedHeight(54)
+        self._bar.setStyleSheet("background: rgba(0,0,0,170);")
+
+        self._txt = QLabel("Starter...")
+        self._txt.setStyleSheet("color: white; font-weight: 700; font-size: 13pt;")
+        self._txt.setContentsMargins(16, 0, 16, 0)
+
+        bar_layout = QHBoxLayout(self._bar)
+        bar_layout.setContentsMargins(0, 0, 0, 0)
+        bar_layout.addWidget(self._txt)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        root.addWidget(self._img)
+        root.addWidget(self._bar)
+
+        self.setFixedSize(pixmap.width(), pixmap.height() + self._bar.height())
+
+        # Center on screen
+        screen = QApplication.primaryScreen()
+        if screen:
+            geo = screen.availableGeometry()
+            self.move(
+                geo.center().x() - self.width() // 2,
+                geo.center().y() - self.height() // 2
+            )
+
+    def set_status(self, text: str) -> None:
+        self._txt.setText(text or "")
+        QApplication.processEvents()
 
 class _StartupSignals(QObject):
     done = Signal(bool, bool, str, str)  # sources_ok, fsr_ok, sources_msg, fsr_msg
@@ -141,8 +187,10 @@ def ensure_files_exist(paths: AppPaths) -> None:
 
 
 class NoodudkaldQt(QMainWindow):
-    def __init__(self):
+    def __init__(self, splash: QSplashScreen | None = None):
         super().__init__()
+        self._splash = splash
+        self._open_settings_after_startup = False
 
         # --- Paths FIRST ---
         self.paths = default_paths()
@@ -151,34 +199,17 @@ class NoodudkaldQt(QMainWindow):
         p = app_icon_path(self.paths.project_root)
         if p:
             icon = QIcon(str(p))
-            self.setWindowIcon(icon)  # window corner
+            self.setWindowIcon(icon)
             app = QApplication.instance()
             if app:
-                app.setWindowIcon(icon)  # taskbar/app
+                app.setWindowIcon(icon)
 
         self.setWindowTitle("Nødudkald")
         self.resize(1400, 900)
 
-
-
-        # --- Core runtime state ---
-        self.hub = None
-        self.task_map = None
-        self.resolver = None
-
-        # --- Last resolved data ---
-        self.last_alert_text: str | None = None
-        self.last_task_ids: list[int] | None = None
-        self.last_priority: str | None = None
-        self.last_location: str | None = None
-
-        # --- Address selection state ---
-        self.selected_address = None
-
         # --- Build UI ---
         self._build_ui()
         self.thread_pool = QThreadPool.globalInstance()
-        # Disable operational buttons until data is ready
         self._set_ready_state(False)
         self._set_header_status("Tjekker…", "info")
 
@@ -186,19 +217,26 @@ class NoodudkaldQt(QMainWindow):
         missing = self._missing_sources()
 
         if missing:
-            # Do not crash — guide operator
+            # First boot: no sources. Do NOT open settings yet (wait until splash is gone and window is visible)
             self._log("Program startet uden datakilder.")
-            self._log("Åbner Indstillinger for opsætning...")
             self._set_header_status("Mangler datakilder", "err")
+            self._splash_msg("Mangler datakilder...")
 
-            # Open settings automatically
-            self.on_settings()
+            # Show settings AFTER startup flow completes (window will be visible then)
+            self._open_settings_after_startup = True
+
+            # Still run startup checks so the splash lifecycle is consistent
+            self._run_startup_checks()
 
         else:
-            # Normal boot: load sources in UI thread (safe)
+            # Load sources while splash is visible
+            self._splash_msg("Indlæser datakilder...")
+
             self._reload_sources()
 
-            # Then check FSR in background
+            # If load failed, hub/task_map/resolver were set to None and header/log updated.
+            # Still run checks to complete the splash lifecycle (will end in sources_ok=False).
+            self._splash_msg("Tester FSR...")
             self._run_startup_checks()
 
     def _run_startup_checks(self):
@@ -207,22 +245,40 @@ class NoodudkaldQt(QMainWindow):
         self.thread_pool.start(worker)
 
     def _on_startup_checked(self, sources_ok: bool, fsr_ok: bool, sources_msg: str, fsr_msg: str):
+        # Update UI state + log (same behavior as now)
         if not sources_ok:
             self._set_header_status("Mangler datakilder", "err")
             self._set_ready_state(False)
             self._log(f"Startup check: IKKE KLAR – {sources_msg}")
+            self._splash_msg(sources_msg)
+
+            # End splash + show window
+            self._finish_splash_if_any()
+            self.show()
+
+            # If first startup with missing sources, open settings now (window is visible)
+            if self._open_settings_after_startup:
+                QTimer.singleShot(0, self.on_settings)
             return
 
         if not fsr_ok:
-            # Datakilder OK, men FSR ikke OK
-            self._set_header_status(fsr_msg, "warn")  # fx "FSR offline" / "FSR login mangler"
+            self._set_header_status(fsr_msg, "warn")
             self._set_ready_state(False)
             self._log(f"Startup check: IKKE KLAR – {fsr_msg}")
+            self._splash_msg(fsr_msg)
+
+            self._finish_splash_if_any()
+            self.show()
             return
 
+        # Fully ready
         self._set_header_status("Klar", "ok")
         self._set_ready_state(True)
         self._log("Startup check: Klar (Datakilder + FSR OK)")
+        self._splash_msg("Klar")
+
+        self._finish_splash_if_any()
+        self.show()
 
     def _check_sources_ready(self) -> tuple[bool, str]:
         missing = self._missing_sources()
@@ -907,6 +963,7 @@ class NoodudkaldQt(QMainWindow):
         self.incident_code.setCompleter(self._incident_completer)
         self._incident_completer.activated.connect(self._on_incident_chosen)
 
+
         # Debounce timer
         self._incident_timer = QTimer(self)
         self._incident_timer.setSingleShot(True)
@@ -974,6 +1031,7 @@ class NoodudkaldQt(QMainWindow):
         finally:
             del blocker
         self._sync_aba_controls()
+        self._sync_assistance_incident_text()
 
     def _extract_incident_code(self, raw: str) -> str:
         """
@@ -999,6 +1057,36 @@ class NoodudkaldQt(QMainWindow):
         m = re.search(r"([A-Za-zÆØÅæøå]{2,4}[A-Za-z0-9ÆØÅæøå]{0,3})\s*$", s)
         return m.group(1) if m else s
 
+    def _sync_assistance_incident_text(self) -> None:
+        """If Assistance is enabled, copy incident label into assistance text (label only)."""
+        if not self.manual_assist.isChecked():
+            return
+
+        label = self._extract_incident_label(self.incident_code.text())
+        if label:
+            # only overwrite if empty or already same type of auto-fill
+            if not self.assist_incident_text.text().strip():
+                self.assist_incident_text.setText(label)
+
+    def _splash_msg(self, text: str) -> None:
+        sp = getattr(self, "_splash", None)
+        if not sp:
+            return
+        try:
+            if hasattr(sp, "set_status"):
+                sp.set_status(text)
+        except Exception:
+            pass
+
+    def _finish_splash_if_any(self) -> None:
+        sp = getattr(self, "_splash", None)
+        if not sp:
+            return
+        try:
+            sp.close()
+        except Exception:
+            pass
+        self._splash = None
     def _log(self, msg: str):
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.log.append(f"[{ts}] {msg}")
@@ -1157,12 +1245,37 @@ class NoodudkaldQt(QMainWindow):
         # Log the visible label (includes [ABA], which is fine in logs)
         self._log(f"Selected: {item.text()} (district {self.selected_address.district_no})")
 
+    def _extract_incident_label(self, raw: str) -> str:
+        """
+        Accepts:
+          - "BBBu"
+          - "Bygn.brand-Butik — BBBu"
+          - "Bygn.brand-Butik - BBBu"
+        Returns only the label/text part (without the code).
+        If only a code was provided, returns "".
+        """
+        s = (raw or "").strip()
+        if not s:
+            return ""
+
+        if "—" in s:
+            return s.split("—")[0].strip()
+
+        if " - " in s:
+            return s.split(" - ")[0].strip()
+
+        return ""
     def on_resolve(self):
         if not self.hub or not self.resolver or not self.task_map:
             raise ValueError("Datakilder er ikke indlæst. Brug Indstillinger.")
         try:
             addr = self._ensure_address()
             assist = self.manual_assist.isChecked()
+
+            # NEW: when operator presses Enter in incident field and resolves,
+            # sync label -> assistance text (label only).
+            if assist:
+                self._sync_assistance_incident_text()
             comments = self.comments.text().strip() or None
 
             if assist:
@@ -1349,6 +1462,7 @@ class NoodudkaldQt(QMainWindow):
 
     def _reload_sources(self):
         try:
+            self._splash_msg("Indlæser datakilder...")
             self._log("Indlæser datakilder...")
 
             # Load core data (hub owns these)
@@ -1379,8 +1493,10 @@ class NoodudkaldQt(QMainWindow):
             self.task_map = None
             self.resolver = None
             self._set_ready_state(False)
+            self._splash_msg(f"Datakilde-fejl: {e}")
             self._set_header_status("Mangler datakilder", "err")  # NEW
             self._log(f"FEJL ved indlæsning af datakilder: {e}")
+
 
     def _set_header_status(self, text: str, level: str = "info"):
         """
@@ -1450,19 +1566,24 @@ class NoodudkaldQt(QMainWindow):
 def run_gui():
     app = QApplication([])
 
-    # --- Splash ---
-    splash = None
+    # Global icon
     root = detect_project_root()
-    splash_path = root / "assets" / "splash.png"  # make this file
+    p = app_icon_path(root)
+    if p:
+        app.setWindowIcon(QIcon(str(p)))
+
+    # Splash (dev + PyInstaller)
+    meipass = getattr(sys, "_MEIPASS", None)
+    splash_path = (Path(meipass) / "assets" / "splash.png") if meipass else (root / "assets" / "splash.png")
+
+    splash = None
     if splash_path.exists():
-        splash = QSplashScreen(QPixmap(str(splash_path)))
+        pm = QPixmap(str(splash_path))
+        splash = BootSplash(pm)
         splash.show()
-        app.processEvents()
+        splash.set_status("Starter...")
 
-    w = NoodudkaldQt()
+    # Create window but DO NOT show yet
+    w = NoodudkaldQt(splash=splash)
 
-    if splash:
-        splash.finish(w)
-
-    w.show()
     app.exec()
