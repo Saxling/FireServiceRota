@@ -13,14 +13,14 @@ from typing import Any
 import pandas as pd
 import requests
 from PySide6.QtCore import Qt, QStringListModel, QUrl, QRunnable, QThreadPool, Signal, QObject, QTimer, QSignalBlocker
-from PySide6.QtGui import QFont, QIcon
+from PySide6.QtGui import QFont, QIcon, QPixmap
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
     QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QTextEdit, QListWidget, QListWidgetItem,
     QPushButton, QGroupBox, QMessageBox, QRadioButton, QButtonGroup,
-    QCheckBox, QSplitter, QDialog, QCompleter
+    QCheckBox, QSplitter, QDialog, QCompleter, QSplashScreen
 )
 
 from noedudkald.data_sources.addresses import make_manual_address
@@ -616,6 +616,7 @@ class NoodudkaldQt(QMainWindow):
         street = str(getattr(a, "street", "")).strip()
         house = str(getattr(a, "house_no", "")).strip()
         letter = str(getattr(a, "house_letter", "")).strip()
+        area = str(getattr(a, "area", "")).strip()
         post = str(getattr(a, "postcode", "")).strip()
 
         ok = False
@@ -632,9 +633,9 @@ class NoodudkaldQt(QMainWindow):
         street = str(getattr(a, "street", "")).strip()
         house = str(getattr(a, "house_no", "")).strip()
         letter = str(getattr(a, "house_letter", "")).strip()
+        area = str(getattr(a, "area", "")).strip()
         post = str(getattr(a, "postcode", "")).strip()
 
-        # City from address or postcode lookup
         city = str(getattr(a, "city", "")).strip()
         if not city and self.hub is not None and post:
             city = (self.hub.postcodes.city_for_postcode(post) or "").strip()
@@ -642,17 +643,18 @@ class NoodudkaldQt(QMainWindow):
         line1 = f"{street} {house}".strip()
         if letter:
             line1 = f"{line1} {letter}".strip()
+        if area:
+            line1 = f"{line1} {area}".strip()
 
         label = f"{line1}, {post} {city}".strip() if city else f"{line1}, {post}".strip()
 
-        # Mark ABA sites
         if self._is_aba_site_address(a):
             label = f"{label}  [ABA]"
 
         return label
 
     def _update_map(self, address_display: str) -> None:
-        addr = (address_display or "").replace(",", "").strip()
+        addr = (address_display or "").strip()
         if not addr:
             return
 
@@ -1447,6 +1449,20 @@ class NoodudkaldQt(QMainWindow):
 
 def run_gui():
     app = QApplication([])
+
+    # --- Splash ---
+    splash = None
+    root = detect_project_root()
+    splash_path = root / "assets" / "splash.png"  # make this file
+    if splash_path.exists():
+        splash = QSplashScreen(QPixmap(str(splash_path)))
+        splash.show()
+        app.processEvents()
+
     w = NoodudkaldQt()
+
+    if splash:
+        splash.finish(w)
+
     w.show()
     app.exec()

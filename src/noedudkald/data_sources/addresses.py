@@ -19,6 +19,7 @@ class KnownAddress:
     street: str
     house_no: str
     house_letter: str
+    area: str
     postcode: str
     city: str = ""
 
@@ -51,6 +52,7 @@ class AddressDirectory:
             "Vejnavn",
             "Hus nummer",
             "Hus bogstav",
+            "Område navn",
             "Postnummer",
         ]
         missing = [c for c in required if c not in df.columns]
@@ -60,6 +62,7 @@ class AddressDirectory:
         df["Vejnavn"] = df["Vejnavn"].str.strip()
         df["Hus nummer"] = df["Hus nummer"].str.strip()
         df["Hus bogstav"] = df["Hus bogstav"].str.strip()
+        df["Område navn"] = df["Område navn"].str.strip()
         df["Postnummer"] = df["Postnummer"].str.strip()
 
         if postcode_to_city:
@@ -67,15 +70,19 @@ class AddressDirectory:
         else:
             df["city"] = ""
 
+        area_part = df["Område navn"].where(df["Område navn"].str.len() > 0, "")
+        area_part = area_part.apply(lambda s: f" {s}" if s else "")
+
         df["display"] = (
-            df["Vejnavn"]
-            + " "
-            + df["Hus nummer"]
-            + df["Hus bogstav"]
-            + ", "
-            + df["Postnummer"]
-            + " "
-            + df["city"]
+                df["Vejnavn"]
+                + " "
+                + df["Hus nummer"]
+                + df["Hus bogstav"]
+                + area_part
+                + ", "
+                + df["Postnummer"]
+                + " "
+                + df["city"]
         ).str.strip()
 
         df["norm_key"] = df["display"].map(normalize_text)
@@ -84,6 +91,7 @@ class AddressDirectory:
         df["street_norm"] = df["Vejnavn"].map(normalize_text)
         df["house_norm"] = df["Hus nummer"].astype(str).str.strip()
         df["letter_norm"] = df["Hus bogstav"].astype(str).str.strip()
+        df["area_norm"] = df["Område navn"].astype(str).str.strip()
         df["postcode_norm"] = df["Postnummer"].astype(str).str.strip()
 
         self._known_postcodes = set(df["postcode_norm"].unique())
@@ -124,6 +132,7 @@ class AddressDirectory:
                 street=r["Vejnavn"],
                 house_no=r["Hus nummer"],
                 house_letter=r["Hus bogstav"],
+                area=r["Område navn"],
                 postcode=r["Postnummer"],
                 city=r["city"],
             )
@@ -203,6 +212,7 @@ class AddressDirectory:
                 street=r["Vejnavn"],
                 house_no=r["Hus nummer"],
                 house_letter=r["Hus bogstav"],
+                area=r["Område navn"],
                 postcode=r["Postnummer"],
                 city=r["city"],
             )

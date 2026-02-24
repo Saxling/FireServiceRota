@@ -27,6 +27,17 @@ cfg_dir = project_root / "data" / "config"
 if cfg_dir.exists():
     datas.append((str(cfg_dir), "data/config"))
 
+# ✅ Bundle runtime assets (icon + splash)
+assets_dir = project_root / "assets"
+
+icon_file = assets_dir / "app_icon.ico"
+if icon_file.exists():
+    datas.append((str(icon_file), "assets"))
+
+splash_file = assets_dir / "splash.png"
+if splash_file.exists():
+    datas.append((str(splash_file), "assets"))
+
 a = Analysis(
     [str(script_path)],
     pathex=[str(project_root), str(src_root)],   # <-- THIS FIXES src-layout imports
@@ -49,7 +60,7 @@ exe = EXE(
     exclude_binaries=True,
     name="FSR-Backup-udkald",
     console=False,
-    icon=str(project_root / "assets" / "app_icon.ico"),
+    icon=str(project_root / "assets" / "app_icon.ico"),  # EXE icon
 )
 
 coll = COLLECT(
