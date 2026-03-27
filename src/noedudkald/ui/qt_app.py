@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QTextEdit, QListWidget, QListWidgetItem,
     QPushButton, QGroupBox, QMessageBox, QRadioButton, QButtonGroup,
-    QCheckBox, QSplitter, QDialog, QCompleter, QSplashScreen
+    QCheckBox, QSplitter, QDialog, QCompleter, QSplashScreen, QProgressBar
 )
 
 from noedudkald.data_sources.addresses import make_manual_address
@@ -194,6 +194,26 @@ class NoodudkaldQt(QMainWindow):
 
         # --- Paths FIRST ---
         self.paths = default_paths()
+
+        # --- Core runtime state ---
+        self.hub = None
+        self.task_map = None
+        self.resolver = None
+
+        # --- Last resolved data ---
+        self.last_alert_text: str | None = None
+        self.last_task_ids: list[int] | None = None
+        self.last_priority: str | None = None
+        self.last_location: str | None = None
+        self.last_incident_code: str | None = None
+        self.last_incident_text: str | None = None
+        self.last_address_display: str | None = None
+        self.last_city: str | None = None
+        self.last_aba_site_name: str | None = None
+
+        # --- Address selection state ---
+        self.selected_address = None
+        self._candidates = []
 
         # --- Icon ---
         p = app_icon_path(self.paths.project_root)
@@ -543,6 +563,12 @@ class NoodudkaldQt(QMainWindow):
         self.comments.setPlaceholderText("Kommentare til førstemelding")
         com_v.addWidget(self.comments)
 
+        # Response compiler
+        units_box, units_v = card("Udrykningssammensætning")
+        self.units_edit = QLineEdit()
+        self.units_edit.setPlaceholderText("Enheder: ROIL1 ROM1 ROV1")
+        units_v.addWidget(self.units_edit)
+
         # Assistance card
         assist_box, assist_v = card("Assistance detaljer")
         self.assist_incident_text = QLineEdit()
@@ -560,6 +586,7 @@ class NoodudkaldQt(QMainWindow):
         mid_l.addWidget(inc_box)
         mid_l.addWidget(prio_box)
         mid_l.addWidget(com_box)
+        mid_l.addWidget(units_box)
         mid_l.addWidget(assist_box)
         mid_l.addWidget(map_box, 1)
 
@@ -1025,13 +1052,26 @@ class NoodudkaldQt(QMainWindow):
         code = self._incident_display_to_code.get(text)
         if not code:
             return
+
+        # Extract label directly from the chosen display ("Label — CODE")
+        label = ""
+        if "—" in text:
+            label = text.split("—")[0].strip()
+        elif " - " in text:
+            label = text.split(" - ")[0].strip()
+
         blocker = QSignalBlocker(self.incident_code)
         try:
             self.incident_code.setText(code)
         finally:
             del blocker
+
         self._sync_aba_controls()
-        self._sync_assistance_incident_text()
+
+        # Assistance: auto-fill incident text with label (not code)
+        if self.manual_assist.isChecked() and label:
+            if not self.assist_incident_text.text().strip():
+                self.assist_incident_text.setText(label)
 
     def _extract_incident_code(self, raw: str) -> str:
         """
@@ -1067,6 +1107,19 @@ class NoodudkaldQt(QMainWindow):
             # only overwrite if empty or already same type of auto-fill
             if not self.assist_incident_text.text().strip():
                 self.assist_incident_text.setText(label)
+
+    def _make_send_progress(self, total: int) -> QProgressDialog:
+        dlg = QProgressDialog("Sender til FireServiceRota...", None, 0, total, self)
+        dlg.setWindowTitle("Afsender til FireServiceRota")
+        dlg.setWindowModality(Qt.ApplicationModal)
+        dlg.setCancelButton(None)
+        dlg.setMinimumDuration(0)
+        dlg.setAutoClose(False)
+        dlg.setAutoReset(False)
+        dlg.setValue(0)
+        dlg.show()
+        QApplication.processEvents()
+        return dlg
 
     def _splash_msg(self, text: str) -> None:
         sp = getattr(self, "_splash", None)
@@ -1265,29 +1318,102 @@ class NoodudkaldQt(QMainWindow):
             return s.split(" - ")[0].strip()
 
         return ""
+
+    def _get_units_from_edit(self) -> list[str]:
+        raw = self.units_edit.text().strip()
+        if not raw:
+            return []
+        return [u.strip() for u in raw.replace(",", " ").split() if u.strip()]
+
+    def _preview_text(self, alert: str, units: list[str], task_ids: list[int],
+                      assistance_unit: str | None = None) -> str:
+        lines = [
+            alert,
+            "",
+            f"Enheder: {' '.join(units)}",
+            f"Task IDs: {task_ids}",
+        ]
+        if assistance_unit:
+            lines.append(f"Assistance auto-added: {assistance_unit}")
+        return "\n".join(lines)
+
+    def _rebuild_from_units_edit(self):
+        units = self._get_units_from_edit()
+        if not units:
+            raise ValueError("Udrykningssammensætning mangler.")
+
+        sel = self.task_map.select_task_ids_for_units(
+            units,
+            now=datetime.now(),
+            auto_add_assistance=True,
+        )
+
+        if sel.missing_units:
+            raise ValueError("Missing task_id mapping for: " + ", ".join(sel.missing_units))
+
+        return units, sel
+
+    def _rebuild_alert_text_from_units_edit(self) -> str:
+        units, sel = self._rebuild_from_units_edit()
+
+        if not self.last_incident_code or not self.last_incident_text or not self.last_address_display or not self.last_priority:
+            raise ValueError("Mangler tidligere resolve-data til at genopbygge alarmtekst.")
+
+        alert = compose_alert_text(
+            CalloutTextInput(
+                incident_code=self.last_incident_code,
+                incident_text=self.last_incident_text,
+                address_display=self.last_address_display,
+                city=self.last_city or "",
+                priority=self.last_priority,
+                dispatch_comments=self.comments.text().strip() or None,
+                aba_site_name=self.last_aba_site_name,
+            ),
+            units=units,
+        )
+
+        self.last_alert_text = alert
+        self.last_task_ids = sel.task_ids
+        return alert
+
     def on_resolve(self):
         if not self.hub or not self.resolver or not self.task_map:
             raise ValueError("Datakilder er ikke indlæst. Brug Indstillinger.")
+
         try:
             addr = self._ensure_address()
             assist = self.manual_assist.isChecked()
 
-            # NEW: when operator presses Enter in incident field and resolves,
-            # sync label -> assistance text (label only).
             if assist:
                 self._sync_assistance_incident_text()
+
             comments = self.comments.text().strip() or None
 
+            # -------------------------
+            # ASSISTANCE
+            # -------------------------
             if assist:
-                # manual incident + units
                 priority = self._priority_text("ASSIST")
                 incident_text = self.assist_incident_text.text().strip()
-                units_raw = self.assist_units.text().strip()
-                units = [u for u in units_raw.replace(",", " ").split() if u.strip()]
+
+                # Prefer units_edit if operator already changed it
+                units = self._get_units_from_edit()
+                if not units:
+                    units_raw = self.assist_units.text().strip()
+                    units = [u for u in units_raw.replace(",", " ").split() if u.strip()]
+
                 if not incident_text:
                     raise ValueError("Mangler hændelsestekst til Assistance.")
                 if not units:
-                    raise ValueError("Assistance manger enheder.")
+                    raise ValueError("Assistance mangler enheder.")
+
+                sel = self.task_map.select_task_ids_for_units(
+                    units,
+                    now=datetime.now(),
+                    auto_add_assistance=True,
+                )
+                if sel.missing_units:
+                    raise ValueError("Missing task_id mapping for: " + ", ".join(sel.missing_units))
 
                 alert = compose_alert_text(
                     CalloutTextInput(
@@ -1300,21 +1426,35 @@ class NoodudkaldQt(QMainWindow):
                     ),
                     units=units,
                 )
-                sel = self.task_map.select_task_ids_for_units(units, now=datetime.now(), auto_add_assistance=True)
-                if sel.missing_units:
-                    raise ValueError("Missing task_id mapping for: " + ", ".join(sel.missing_units))
 
                 self.last_priority = priority
                 self.last_alert_text = alert
                 self.last_task_ids = sel.task_ids
                 self.last_location = self._fsr_location(addr.display)
 
-                self.preview.setPlainText(alert + "\n\n" + f"Task IDs: {sel.task_ids}" +
-                                          (
-                                              f"\nAssistance auto-added: {sel.assistance_unit}" if sel.assistance_added else ""))
+                self.last_incident_code = "ASSIST"
+                self.last_incident_text = incident_text
+                self.last_address_display = addr.display
+                self.last_city = getattr(addr, "city", "") or ""
+                self.last_aba_site_name = None
+
+                # keep editable field synced, but do not overwrite operator changes with defaults
+                self.units_edit.setText(" ".join(units))
+
+                self.preview.setPlainText(
+                    self._preview_text(
+                        alert=alert,
+                        units=units,
+                        task_ids=sel.task_ids,
+                        assistance_unit=sel.assistance_unit if sel.assistance_added else None,
+                    )
+                )
                 self._log("Assistance preview ready.")
                 return
 
+            # -------------------------
+            # NORMAL / ABA
+            # -------------------------
             incident_code = self._extract_incident_code(self.incident_code.text())
             if not incident_code:
                 raise ValueError("Incident code is required.")
@@ -1331,6 +1471,21 @@ class NoodudkaldQt(QMainWindow):
                 incident_text = resolved.incident_label or resolved.incident_code
                 aba_site_name = None
 
+            # IMPORTANT:
+            # If operator has already edited the units field, use that.
+            # Otherwise use the resolved defaults.
+            units = self._get_units_from_edit()
+            if not units:
+                units = list(resolved.final_units)
+
+            sel = self.task_map.select_task_ids_for_units(
+                units,
+                now=datetime.now(),
+                auto_add_assistance=True,
+            )
+            if sel.missing_units:
+                raise ValueError("Missing task_id mapping for: " + ", ".join(sel.missing_units))
+
             alert = compose_alert_text(
                 CalloutTextInput(
                     incident_code=resolved.incident_code,
@@ -1341,26 +1496,31 @@ class NoodudkaldQt(QMainWindow):
                     dispatch_comments=comments,
                     aba_site_name=aba_site_name,
                 ),
-                units=resolved.final_units,
+                units=units,
             )
-
-            sel = self.task_map.select_task_ids_for_units(resolved.final_units, now=datetime.now(),
-                                                          auto_add_assistance=True)
-            if sel.missing_units:
-                raise ValueError("Missing task_id mapping for: " + ", ".join(sel.missing_units))
 
             self.last_priority = priority
             self.last_alert_text = alert
             self.last_task_ids = sel.task_ids
             self.last_location = self._fsr_location(resolved.address.display)
 
-            extra_lines = [
-                f"Units: {' '.join(resolved.final_units)}",
-                f"Task IDs: {sel.task_ids}",
-            ]
-            if sel.assistance_added:
-                extra_lines.append(f"Assistance auto-added: {sel.assistance_unit}")
-            self.preview.setPlainText(alert + "\n\n" + "\n".join(extra_lines))
+            self.last_incident_code = resolved.incident_code
+            self.last_incident_text = incident_text
+            self.last_address_display = resolved.address.display
+            self.last_city = resolved.address.city or ""
+            self.last_aba_site_name = aba_site_name
+
+            # keep editable field synced
+            self.units_edit.setText(" ".join(units))
+
+            self.preview.setPlainText(
+                self._preview_text(
+                    alert=alert,
+                    units=units,
+                    task_ids=sel.task_ids,
+                    assistance_unit=sel.assistance_unit if sel.assistance_added else None,
+                )
+            )
             self._log("Resolved preview ready.")
 
         except Exception as e:
@@ -1372,18 +1532,24 @@ class NoodudkaldQt(QMainWindow):
             m = re.search(r"\((\d{3})\)", msg)
             return m.group(1) if m else None
 
+        progress = None
+
         try:
-            # 1) Always re-generate before sending to ensure latest inputs are used
+            # Always regenerate before sending
             self._log("Opdaterer preview før afsendelse...")
             self.on_resolve()
+
+            # rebuild from edited units field
+            self.last_alert_text = self._rebuild_alert_text_from_units_edit()
 
             if not self.last_alert_text or not self.last_task_ids or not self.last_priority or not self.last_location:
                 raise ValueError("Kunne ikke generere opdateret preview. Ret input og prøv igen.")
 
             fsr_prio = FSR_PRIORITY_MAP[self.last_priority]
 
-            # ✅ APPDATA token store
             from noedudkald.persistence.runtime_paths import ensure_user_data_layout
+            from noedudkald.ui.settings_dialog import LoginDialog
+
             udata = ensure_user_data_layout()
             token_path = udata / "secrets" / "fsr_token.json"
 
@@ -1394,7 +1560,6 @@ class NoodudkaldQt(QMainWindow):
             if token:
                 client.set_token(token)
             else:
-                # ✅ Import locally to avoid circular imports & PyInstaller issues
                 dlg = LoginDialog(self)
                 if dlg.exec() != QDialog.Accepted:
                     return
@@ -1405,23 +1570,62 @@ class NoodudkaldQt(QMainWindow):
 
                 token = client.login_with_password(username, password)
                 store.save(token, username=username)
+                client.set_token(token)
 
-            self._log("Sender til FireServiceRota...")
+            client.set_persist_token_callback(lambda t: store.save(t))
 
-            result = client.create_incident(
-                body_text=self.last_alert_text,
-                prio=fsr_prio,
-                location=self.last_location,
-                task_ids=self.last_task_ids,
-            )
+            total = len(self.last_task_ids)
+            progress = self._make_send_progress(total)
 
-            inc_id = result.get("id") or result.get("incidentId")
-            if inc_id:
-                self._log(f"FSR OK (HTTP 200) – Hændelse oprettet (ID: {inc_id})")
-                self._info("Sendt", f"Hændelse oprettet i FireServiceRota.\nID: {inc_id}")
+            self._log(f"Sender til FireServiceRota ({total} separate incidents)...")
+
+            created: list[tuple[int, str | int | None]] = []
+
+            for idx, task_id in enumerate(self.last_task_ids, start=1):
+                progress.setLabelText(
+                    f"Sender incident {idx} af {total}...\n"
+                    f"Task ID: {task_id}"
+                )
+                progress.setValue(idx - 1)
+                QApplication.processEvents()
+
+                result = client.create_incident(
+                    body_text=self.last_alert_text,
+                    prio=fsr_prio,
+                    location=self.last_location,
+                    task_ids=[task_id],
+                )
+
+                inc_id = result.get("id") or result.get("incidentId")
+                created.append((task_id, inc_id))
+
+                if inc_id:
+                    self._log(f"FSR OK – task_id {task_id} -> incident ID {inc_id}")
+                else:
+                    self._log(f"FSR OK – task_id {task_id} -> incident oprettet")
+
+                progress.setValue(idx)
+                QApplication.processEvents()
+
+            progress.setLabelText("Afsendelse fuldført.")
+            progress.setValue(total)
+            QApplication.processEvents()
+
+            if len(created) == 1:
+                task_id, inc_id = created[0]
+                if inc_id:
+                    self._info("Sendt",
+                               f"Hændelse oprettet i FireServiceRota.\nTask ID: {task_id}\nIncident ID: {inc_id}")
+                else:
+                    self._info("Sendt", f"Hændelse oprettet i FireServiceRota.\nTask ID: {task_id}")
             else:
-                self._log("FSR OK (HTTP 200) – Hændelse oprettet")
-                self._info("Sendt", "Hændelse oprettet i FireServiceRota.")
+                lines = []
+                for task_id, inc_id in created:
+                    if inc_id:
+                        lines.append(f"Task ID {task_id} -> Incident ID {inc_id}")
+                    else:
+                        lines.append(f"Task ID {task_id} -> Oprettet")
+                self._info("Sendt", "Separate hændelser oprettet i FireServiceRota:\n\n" + "\n".join(lines))
 
         except FireServiceRotaAuthError as e:
             code = _extract_http_code(str(e))
@@ -1444,6 +1648,10 @@ class NoodudkaldQt(QMainWindow):
             self._log("FEJL ved afsendelse")
             self._log(str(e))
             self._error("Fejl", str(e))
+
+        finally:
+            if progress is not None:
+                progress.close()
 
     def _set_ready_state(self, ready: bool):
         self.resolve_btn.setEnabled(ready)
@@ -1546,12 +1754,18 @@ class NoodudkaldQt(QMainWindow):
 
         self.assist_incident_text.clear()
         self.assist_units.clear()
+        self.units_edit.clear()
         self.comments.clear()
 
         self.last_alert_text = None
         self.last_task_ids = None
         self.last_priority = None
         self.last_location = None
+        self.last_incident_code = None
+        self.last_incident_text = None
+        self.last_address_display = None
+        self.last_city = None
+        self.last_aba_site_name = None
 
         self.preview.clear()
         self._log("Cleared.")
