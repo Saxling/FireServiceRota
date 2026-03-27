@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QTextEdit, QListWidget, QListWidgetItem,
     QPushButton, QGroupBox, QMessageBox, QRadioButton, QButtonGroup,
-    QCheckBox, QSplitter, QDialog, QCompleter, QSplashScreen, QProgressBar
+    QCheckBox, QSplitter, QDialog, QCompleter, QSplashScreen, QProgressBar, QProgressDialog,
 )
 
 from noedudkald.data_sources.addresses import make_manual_address
@@ -1294,6 +1294,7 @@ class NoodudkaldQt(QMainWindow):
                 finally:
                     del blocker
                 self._sync_aba_controls()
+                self.on_resolve()
 
         # Log the visible label (includes [ABA], which is fine in logs)
         self._log(f"Selected: {item.text()} (district {self.selected_address.district_no})")
@@ -1323,7 +1324,7 @@ class NoodudkaldQt(QMainWindow):
         raw = self.units_edit.text().strip()
         if not raw:
             return []
-        return [u.strip() for u in raw.replace(",", " ").split() if u.strip()]
+        return [u.strip().upper() for u in raw.replace(",", " ").split() if u.strip()]
 
     def _preview_text(self, alert: str, units: list[str], task_ids: list[int],
                       assistance_unit: str | None = None) -> str:
@@ -1400,7 +1401,7 @@ class NoodudkaldQt(QMainWindow):
                 units = self._get_units_from_edit()
                 if not units:
                     units_raw = self.assist_units.text().strip()
-                    units = [u for u in units_raw.replace(",", " ").split() if u.strip()]
+                    units = [u.strip().upper() for u in units_raw.replace(",", " ").split() if u.strip()]
 
                 if not incident_text:
                     raise ValueError("Mangler hændelsestekst til Assistance.")
